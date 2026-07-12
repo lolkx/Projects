@@ -1,0 +1,145 @@
+% ============================================================
+%  Problem Formulation — PLBDP (route-based, no binary vars)
+%  Notation: routes gamma_i, solution Gamma
+% ============================================================
+
+\subsection{Input Data}
+
+Let $N = \{0, 1, \ldots, n\}$ be the set of locations, where node $0$ represents
+the depot and $N_0 = N \setminus \{0\} = \{1, \ldots, n\}$ denotes the set of
+parcel locker locations. Let $Z = \{1, 2, 3\}$ be the set of size categories for
+parcels and locker compartments, where a parcel of size $s$ fits in any
+compartment of size $c \geq s$.
+
+For each location $k \in N_0$ and size $i \in Z$, let $a_{k,i} \in \mathbb{N}_+$
+denote the number of available compartments of size $i$ at location $k$.
+
+Let $O = \{1, \ldots, o\}$ be the set of orders. For each order $q \in O$, we
+define:
+\begin{itemize}
+    \item $s_q \in Z$: parcel size,
+    \item $w_q \in \mathbb{N}_+$: parcel weight,
+    \item $p_q \in N_0$: intended delivery or pickup location,
+    \item $u_q \in \{0, 1\}$: order type, where $u_q = 0$ denotes a delivery order
+    and $u_q = 1$ a pickup order.
+\end{itemize}
+For each location $j \in N_0$, let $O_j^d = \{q \in O : p_q = j,\, u_q = 0\}$
+and $O_j^p = \{q \in O : p_q = j,\, u_q = 1\}$ be the sets of delivery and
+pickup orders assigned to location $j$, respectively. The total delivery weight
+and pickup weight at node $j$ are denoted
+\[
+    d_j = \sum_{q \in O_j^d} w_q, \qquad
+    p_j = \sum_{q \in O_j^p} w_q.
+\]
+
+Let $V = \{1, \ldots, v\}$ be the set of homogeneous vehicles, each with weight
+capacity $Q \in \mathbb{N}_+$. Let $S \in \mathbb{N}_+$ be the service time for
+placing or retrieving a parcel at a locker, and $P \in \mathbb{N}_+$ the parking
+time incurred upon arrival at any non-depot location.
+
+The problem is modelled on a complete directed graph $G = (N, A)$, where
+$A = \{(i, j) : i, j \in N,\; i \neq j\}$ is the set of directed arcs. Each arc
+$(i, j) \in A$ has a travel distance $d_{ij} \in \mathbb{R}_+$. Distances are
+extracted from OpenStreetMap using real street networks and are in general
+non-symmetric ($d_{ij} \neq d_{ji}$ may hold due to one-way streets or
+detours).
+
+Travel time is time-dependent. The travel time on arc $(i, j)$ when departing at
+hour $h \in \{0, 1, \ldots, 23\}$ is
+\begin{equation}
+    t_{ij}^{h} = \frac{d_{ij}}{v^h},
+    \label{eq:travel_time}
+\end{equation}
+where $v^h$ is the average traffic speed at hour $h$, calibrated from real
+traffic data. Speeds range from $28.4$\,km/h during peak evening rush hours
+(17:00--18:00) to $41.0$\,km/h during quiet early morning hours (04:00).
+
+For each location $j \in N_0$, a binary feasibility flag $f_j \in \{0, 1\}$ is
+pre-computed offline. A node is feasible ($f_j = 1$) if and only if all delivery
+orders $O_j^d$ can be accommodated in the available compartments. Formally,
+$f_j = 1$ if and only if there exists an injective assignment
+$\phi: O_j^d \to \mathcal{C}_j$ such that
+\begin{equation}
+    \sigma_{\phi(q)} \geq s_q \qquad \forall\, q \in O_j^d,
+    \label{eq:feasibility}
+\end{equation}
+where $\mathcal{C}_j$ is the set of available compartments at location $j$ and
+$\sigma_c \in Z$ denotes the size of compartment $c$. Nodes with $f_j = 0$ are
+excluded from the graph prior to optimisation.
+
+\subsection{Solution Representation}
+
+Each vehicle $i \in V$ follows a route $\gamma_i$, defined as an ordered
+sequence of locker nodes starting and ending at the depot:
+\begin{equation}
+    \gamma_i = \bigl(0,\, \ell_1^i,\, \ell_2^i,\, \ldots,\, \ell_{r_i}^i,\, 0\bigr),
+    \label{eq:route}
+\end{equation}
+where $\ell_k^i \in N_0$ and $r_i \geq 1$ is the number of locker visits on
+route $i$. An empty vehicle ($r_i = 0$) is not assigned to any route. The set of
+consecutive arcs in route $\gamma_i$ is denoted $A(\gamma_i)$.
+
+A \emph{solution} is the collection of all non-empty routes:
+\begin{equation}
+    \Gamma = \bigl\{\gamma_i : i \in V,\; r_i \geq 1\bigr\},
+    \label{eq:solution}
+\end{equation}
+with $1 \leq |\Gamma| \leq v$.
+
+\subsection{Objective Function}
+
+The objective is to minimise the total travel distance across all routes:
+\begin{equation}
+    \min_{\Gamma}\; F(\Gamma) = \sum_{\gamma \in \Gamma}
+    \sum_{(i,\,j)\,\in\, A(\gamma)} d_{ij}.
+    \label{eq:objective}
+\end{equation}
+
+\subsection{Constraints}
+
+\textbf{Coverage.} Every feasible node with at least one assigned order must be
+visited by exactly one route:
+\begin{equation}
+    \sum_{\gamma \in \Gamma} \mathbf{1}[j \in \gamma] = 1 \qquad
+    \forall\, j \in N_0 : f_j = 1,\;\; O_j^d \cup O_j^p \neq \emptyset.
+    \label{cr:coverage}
+\end{equation}
+
+\textbf{Route structure.} Every route starts and ends at the depot (enforced by
+definition~\eqref{eq:route}).
+
+\textbf{Capacity.} For each route $\gamma \in \Gamma$, the combined weight of
+all delivery and pickup orders assigned to nodes on $\gamma$ must not exceed
+vehicle capacity:
+\begin{equation}
+    \sum_{j \in \gamma} \bigl(d_j + p_j\bigr) \leq Q \qquad \forall\, \gamma \in \Gamma.
+    \label{cr:capacity}
+\end{equation}
+Because vehicles depart the depot loaded with all delivery parcels and
+accumulate pickups along the route, equation~\eqref{cr:capacity} ensures
+feasibility at every point of the tour.
+
+\textbf{Locker feasibility.} Only compartment-feasible nodes may be included in
+any route:
+\begin{equation}
+    j \in \gamma \implies f_j = 1 \qquad \forall\, \gamma \in \Gamma,\;
+    j \in N_0.
+    \label{cr:feasibility}
+\end{equation}
+
+% ---------------------------------------------------------------
+% NOTE ON NOTATION CHOICE
+% ---------------------------------------------------------------
+% This formulation uses route sequences (gamma/Gamma) rather than
+% binary arc-traversal variables x_{ijk} in {0,1}.
+%
+% The binary-variable formulation is standard for MIP / exact solvers
+% (e.g. Gurobi). Since this work uses a heuristic approach (BR-CWS +
+% GRASP), the route-based representation is architecturally aligned
+% with the algorithm and is the predominant choice in heuristic VRPSPD
+% papers (see, e.g., Dethloff 2001; Chen & Wu 2006; Fikejz et al. 2024).
+%
+% If a MIP reference is needed, add:
+%   x_{ijk} = 1 if vehicle i traverses arc (j,k), 0 otherwise
+% and reformulate cr:coverage and cr:capacity in terms of x_{ijk}.
+% ---------------------------------------------------------------
